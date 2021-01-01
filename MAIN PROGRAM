@@ -1,0 +1,110 @@
+
+%% cell edge detection
+I = imread("test001-main0470.jpg");
+index = 1;
+I = rgb2gray(I); % Convert to grayscale
+cells = {};
+[~,threshold] = edge(I,'sobel');
+fudgeFactor = 0.5;
+BWs = edge(I,'sobel',threshold * fudgeFactor);
+
+imshow(BWs)
+title('Binary Gradient Mask')
+se90 = strel('line',3,90);
+se0 = strel('line',3,0);
+BWsdil = imdilate(BWs,[se90 se0]);
+imshow(BWsdil)
+title('Dilated Gradient Mask')
+
+BWdfill = imfill(BWsdil,'holes');
+imshow(BWdfill)
+title('Binary Image with Filled Holes')
+
+BWnobord = imclearborder(BWdfill,4);
+imshow(BWnobord)
+title('Cleared Border Image')
+
+seD = strel('diamond',1);
+BWfinal = imerode(BWnobord,seD);
+BWfinal = imerode(BWfinal,seD);
+imshow(BWfinal)
+title('Segmented Image');
+imwrite(BWfinal, "TrypEdge450.jpg")
+
+%% Blob Analysis
+
+hBlobAnalysis = vision.BlobAnalysis('MinimumBlobArea' ,400, ...
+    'MaximumBlobArea', 1200);
+[objArea, objCentroid, bboxOut] = step(hBlobAnalysis, BWfinal);
+Cent = objCentroid;
+if index == 1
+  trackcount = size(Cent,1);  
+end
+sz = size(bboxOut);
+blobcount = sz(1);
+ydist = zeros(1,blobcount);
+xdist = zeros(1,blobcount);
+totaldist = zeros(1,blobcount);
+
+for j = 1:blobcount %Find distance from each blob to center
+    ydist(j) = abs(bboxOut(j,2) - 290);
+    xdist(j) = abs(bboxOut(j,1) - 290);
+    totaldist(j) = xdist(j)^2 + ydist(j)^2;
+end
+ %For first iteration, find blob closest to center
+[Minimum,Index] = min(totaldist);
+ydistance = bboxOut(Index, 2);
+xdistance = bboxOut(Index, 1);
+bboxOut2 = [xdistance, ydistance-10, 30,30];
+firstblobdist = [xdistance,ydistance];
+xbox = xdistance - 85;
+ybox = ydistance - 95;
+bboxOut3 = [xbox, ybox, 200,200];
+
+%% Cell Tracking
+if index == 1
+    numberocells = size(Cent,1);
+    for k = 1:numberocells                        %Initialize the cells to be tracked
+        cells{k} = [];
+        cells{k}(1,1) = Cent(k,1);
+        cells{k}(1,2) = Cent(k,2);
+    end
+else
+    for k = 1:trackcount                            %Loop through all the initial cells
+        cellsdistances = [];
+        cellscoords = [];
+        for j = 1:numberocells
+           
+            cellxdist = Cent(j,1);
+            cellydist = Cent(j,2);
+            cellxdiff = cellxdist - cells{k}(index-1,1);
+            cellydiff = cellydist - cells{k}(index-1,2);
+            totalcelldist = sqrt(cellxdiff^2 + cellydiff^2);
+            cellsdistances(j) = totalcelldist;
+            cellscoords(j) = [cellxdist, cellydist];
+        end
+        
+        mindistance = min(cellsdistances);
+        for i = 1:size(cellsdistances)
+            if cellsdistances(i) == mindistance
+                finalcellcoords = cellscoords(i);
+            end
+        end
+        
+        cells{k}(i,1) = finalcellcoords(1);
+        cells{k}(i,2) = finalcellcoords(2);
+    end
+    
+end
+
+%% Annotate Image
+Ishape = insertShape(I, 'rectangle', bboxOut, 'Linewidth',4);
+%Ishape = insertShape(Ishape, 'rectangle', bboxOut2, 'Linewidth', 4, 'color','red');
+%Ishape = insertShape(Ishape, 'rectangle', bboxOut3, 'Linewidth', 2);
+%figure
+%subplot(1,2,1)
+%imshow(Ishape);
+imwrite(Ishape, "tryptrack20.jpg");
+%imwrite(Ishape, writename);
+imshow(Ishape);
+disp(xdistance);
